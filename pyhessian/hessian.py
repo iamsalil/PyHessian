@@ -22,6 +22,8 @@ import torch
 import math
 from torch.autograd import Variable
 import numpy as np
+import os
+import time, datetime
 
 from pyhessian.utils import group_product, group_add, normalization, get_params_grad, hessian_vector_product, orthnormal
 
@@ -34,7 +36,7 @@ class hessian():
         iii) the estimated eigenvalue density
     """
 
-    def __init__(self, model, criterion, data=None, dataloader=None, cuda=True):
+    def __init__(self, model, criterion, data=None, dataloader=None, cuda=True, data_save_dir="data", record_data=False):
         """
         model: the model that needs Hessain information
         criterion: the loss function
@@ -60,6 +62,15 @@ class hessian():
             self.device = 'cuda'
         else:
             self.device = 'cpu'
+
+        # checking whether or not data save folder has been created
+        self.record_data = record_data
+        self.data_save_dir = data_save_dir + "/"
+        if record_data && !os.path.exists(data_save_dir)
+            try:
+                os.mkdir(data_save_dir)
+            except OSError:
+                print("Could not create data save directory")
 
         # pre-processing for single batch case to simplify the computation.
         if not self.full_dataset:
@@ -108,7 +119,7 @@ class hessian():
         eigenvalue = group_product(THv, v).cpu().item()
         return eigenvalue, THv
 
-    def eigenvalues(self, maxIter=100, tol=1e-3, top_n=1):
+    def eigenvalues(self, maxIter=100, tol=1e-3, top_n=1, debug=False):
         """
         compute the top_n eigenvalues using power iteration method
         maxIter: maximum iterations used to compute each single eigenvalue
@@ -125,13 +136,26 @@ class hessian():
 
         computed_dim = 0
 
+        # Prepare to record data
+        if self.record_data:
+            now = datetime.datetime.now()
+            timestamp = "_{:02d}{:02d}_{:02d}{:02d}{:02d}".format(now.day, now.month, now.hour, now.minute, now.second)
+            save_file = self.data_save_dir + "TopEigen" + timestamp + ".txt"
+            total_time_to_compute = []
+            iters_to_compute = []
+
+        start_time = time.time()
         while computed_dim < top_n:
+            if debug:
+                print("Computing eigenvalue #{}".format(computed_dim+1))
             eigenvalue = None
             v = [torch.randn(p.size()).to(device) for p in self.params
                 ]  # generate random vector
             v = normalization(v)  # normalize the vector
 
             for i in range(maxIter):
+                if debug:
+                    print("   Iteration {}".format(i))
                 v = orthnormal(v, eigenvectors)
                 self.model.zero_grad()
 
@@ -151,13 +175,21 @@ class hessian():
                         break
                     else:
                         eigenvalue = tmp_eigenvalue
+            # Record data
+            total_time_to_compute.append(time.time() - start_time);
+            iters_to_compute.append(i)
             eigenvalues.append(eigenvalue)
             eigenvectors.append(v)
             computed_dim += 1
-
+        # Write data if applicable
+        if self.record_data:
+            with open(save_file, 'w') as f:
+                f.write("Eigenvalue\tTotal Elapsed Time(s)\t#Iterations\n")
+                for i in range(top_n):
+                    f.write("{}\t{}\t{}\n".format(i+1, total_time_to_compute[i], iters_to_compute[i]))
         return eigenvalues, eigenvectors
 
-    def trace(self, maxIter=100, tol=1e-3):
+    def trace(self, maxIter=100, tol=1e-3, debug=False):
         """
         compute the trace of hessian using Hutchinson's method
         maxIter: maximum iterations used to compute trace
@@ -168,7 +200,18 @@ class hessian():
         trace_vhv = []
         trace = 0.
 
+        # Prepare to record data
+        if self.record_data:
+            now = datetime.datetime.now()
+            timestamp = "_{:02d}{:02d}_{:02d}{:02d}{:02d}".format(now.day, now.month, now.hour, now.minute, now.second)
+            save_file = self.data_save_dir + "Trace" + timestamp + ".txt"
+            total_time_to_compute = []
+            trace_estimate = []
+
+        start_time = time.time()
         for i in range(maxIter):
+            if debug:
+                    print("Iteration {}".format(i))
             self.model.zero_grad()
             v = [
                 torch.randint_like(p, high=2, device=device)
@@ -183,14 +226,23 @@ class hessian():
             else:
                 Hv = hessian_vector_product(self.gradsH, self.params, v)
             trace_vhv.append(group_product(Hv, v).cpu().item())
+
+            total_time_to_compute.append(time.time() - start_time)
+            trace_estimate.append(np.mean(trace_vhv))
+
             if abs(np.mean(trace_vhv) - trace) / (trace + 1e-6) < tol:
                 return trace_vhv
             else:
                 trace = np.mean(trace_vhv)
-
+        # Write data if applicable
+        if self.record_data:
+            with open(save_file, 'w') as f:
+                f.write("Iteration\tTotal Elapsed Time(s)\tTrace Estimate\n")
+                for i in range(top_n):
+                    f.write("{}\t{}\t{}\n".format(i+1, total_time_to_compute[i], trace_estimate[i]))
         return trace_vhv
 
-    def density(self, iter=100, n_v=1):
+    def density(self, iter=100, n_v=1, debug=False):
         """
         compute estimated eigenvalue density using stochastic lanczos algorithm (SLQ)
         iter: number of iterations used to compute trace
@@ -201,6 +253,13 @@ class hessian():
         eigen_list_full = []
         weight_list_full = []
 
+        # Prepare to record data
+        if self.record_data:
+            now = datetime.datetime.now()
+            timestamp = "_{:02d}{:02d}_{:02d}{:02d}{:02d}".format(now.day, now.month, now.hour, now.minute, now.second)
+            save_file = self.data_save_dir + "ESD" + timestamp + ".txt"
+
+        start_time = time.time();
         for k in range(n_v):
             v = [
                 torch.randint_like(p, high=2, device=device)
@@ -218,6 +277,8 @@ class hessian():
             beta_list = []
             ############### Lanczos
             for i in range(iter):
+                if debug:
+                    print("Iteration {}".format(i))
                 self.model.zero_grad()
                 w_prime = [torch.zeros(p.size()).to(device) for p in self.params]
                 if i == 0:
@@ -264,5 +325,10 @@ class hessian():
             weight_list = b_[0, :]**2
             eigen_list_full.append(list(eigen_list.cpu().numpy()))
             weight_list_full.append(list(weight_list.cpu().numpy()))
-
+        # Write data if applicable
+        stop_time = time.time()
+        if self.record_data:
+            with open(save_file, 'w') as f:
+                f.write("Total Elapsed Time(s)\n")
+                f.write("{}\n".format(stop_time - start_time))
         return eigen_list_full, weight_list_full
