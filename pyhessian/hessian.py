@@ -66,7 +66,7 @@ class hessian():
         # checking whether or not data save folder has been created
         self.record_data = record_data
         self.data_save_dir = data_save_dir + "/"
-        if record_data && !os.path.exists(data_save_dir)
+        if record_data and (not os.path.exists(data_save_dir)):
             try:
                 os.mkdir(data_save_dir)
             except OSError:
@@ -231,14 +231,21 @@ class hessian():
             trace_estimate.append(np.mean(trace_vhv))
 
             if abs(np.mean(trace_vhv) - trace) / (trace + 1e-6) < tol:
+                # Write data if applicable
+                if self.record_data:
+                    with open(save_file, 'w') as f:
+                        f.write("Iteration\tTotal Elapsed Time(s)\tTrace Estimate\n")
+                        for i in range(len(total_time_to_compute)):
+                            f.write("{}\t{}\t{}\n".format(i+1, total_time_to_compute[i], trace_estimate[i]))
                 return trace_vhv
             else:
                 trace = np.mean(trace_vhv)
+        # Trace could not converge
         # Write data if applicable
         if self.record_data:
             with open(save_file, 'w') as f:
                 f.write("Iteration\tTotal Elapsed Time(s)\tTrace Estimate\n")
-                for i in range(top_n):
+                for i in range(len(total_time_to_compute)):
                     f.write("{}\t{}\t{}\n".format(i+1, total_time_to_compute[i], trace_estimate[i]))
         return trace_vhv
 

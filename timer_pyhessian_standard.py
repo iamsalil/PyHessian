@@ -139,14 +139,14 @@ else:
 print(
     '********** finish data londing and begin Hessian computation **********')
 
-print("Computing eigenvalues...")
-top_eigenvalues, _ = hessian_comp.eigenvalues(top_n=20, debug=True)
+# print("Computing eigenvalues...")
+# top_eigenvalues, _ = hessian_comp.eigenvalues(top_n=20, debug=True)
 print("Computing trace...")
 trace = hessian_comp.trace(debug=True)
-print("Computing ESD...")
-density_eigen, density_weight = hessian_comp.density(debug=True)
+# print("Computing ESD...")
+# density_eigen, density_weight = hessian_comp.density(debug=True)
 
-print('\n***Top Eigenvalues: ', top_eigenvalues)
+# print('\n***Top Eigenvalues: ', top_eigenvalues)
 print('\n***Trace: ', np.mean(trace))
 
-get_esd_plot(density_eigen, density_weight)
+# get_esd_plot(density_eigen, density_weight)
