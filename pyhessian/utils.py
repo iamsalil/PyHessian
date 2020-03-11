@@ -33,6 +33,24 @@ def group_product(xs, ys):
     """
     return sum([torch.sum(x * y) for (x, y) in zip(xs, ys)])
 
+def norm(v):
+    return (group_product(v, v)**0.5).cpu().item()
+
+def multi_add(tensors, weights):
+    """
+    :param tensors: list of tensors of same size to add
+    :param weights: relative weights to add
+    :return: new tensor that is a weighted linear combination of input tensors
+    """
+    # Create 0 template tensor
+    sum = []
+    for p in tensors[0]:
+        sum.append(p.clone().detach())
+    group_add(sum, sum, -1)
+    # Add tensors as in group add
+    for i in range(len(tensors)):
+        group_add(sum, tensors[i], weights[i])
+    return sum
 
 def group_add(params, update, alpha=1):
     """

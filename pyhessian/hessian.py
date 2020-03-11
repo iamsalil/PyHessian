@@ -25,7 +25,7 @@ import numpy as np
 import os
 import time, datetime
 
-from pyhessian.utils import group_product, group_add, normalization, get_params_grad, hessian_vector_product, orthnormal
+from pyhessian.utils import group_product, norm, multi_add, group_add, normalization, get_params_grad, hessian_vector_product, orthnormal
 
 
 class hessian():
@@ -254,6 +254,7 @@ class hessian():
         compute estimated eigenvalue density using stochastic lanczos algorithm (SLQ)
         iter: number of iterations used to compute trace
         n_v: number of SLQ runs
+
         """
 
         device = self.device
@@ -339,3 +340,239 @@ class hessian():
                 f.write("Total Elapsed Time(s)\n")
                 f.write("{}\n".format(stop_time - start_time))
         return eigen_list_full, weight_list_full
+
+    # CUSTOM FUNCTIONS BELOW HERE
+    # todo: implement sketch, eigenvalues_lanczos, trace_forced_lengthy, scdf, density_to_scdf
+
+    def sketch(self, d, debug=False):
+        """
+        Sketch function and scale down from a nxn matrix to a dxd matrix
+        Do this by right multiplying by d nx1 column vectors to get a nxd matrix
+            then left multiplying by a dxn matrix
+        Sketch is made up of Rademacher variables (helps with trace calculation as well)
+        Output is a dxd numpy array
+        """
+
+        device = self.device
+        # Generate d Rademacher vectors v and calculate corresponding Hv
+        print("starting")
+        print("d = " + str(d))
+        vs = []
+        Hvs = []
+        for i in range(d):
+            print(i)
+            # Generate Rademacher random variables
+            v = [torch.randint_like(p, high=2, device=device) for p in self.params]
+            for v_i in v:
+                v_i[v_i == 0] = -1
+            vs.append(v)
+            # Calculate Hv
+            self.model.zero_grad()
+            if self.full_dataset:
+                _, Hv = self.dataloader_hv_product(v)
+            else:
+                Hv = hessian_vector_product(self.gradsH, self.params, v)
+            Hvs.append(Hv)
+        # Create sketched matrix template
+        sketched_hessian = np.zeros((d, d))
+        # Fill in matrix as A_ij = v_i' * Hv_j
+        for i in range(d):
+            for j in range(d):
+                print("({}, {})".format(i, j))
+                sketched_hessian[i, j] = group_product(vs[i], Hvs[j]).cpu().item()/d
+        return sketched_hessian
+
+    def eigenvalues_lanczos(self, k, debug=False):
+        """
+        Compute the top k eigenvalues by Lacnzos Method for approximating eigenvalues
+        """
+
+        device = self.device
+
+        # Pick a random first vector, making sure it has norm 1
+        print("starting with q1")
+        q0 = [torch.randn(p.size()).to(device) for p in self.params]
+        q0 = normalization(q0)
+        # Calculate Hq1
+        self.model.zero_grad()
+        if self.full_dataset:
+            _, Hq0 = self.dataloader_hv_product(q0)
+        else:
+            Hq0 = hessian_vector_product(self.gradsH, self.params, q0)
+        # First column
+        qs = [q0]
+        Hqs = [Hq0]
+        T = np.zeros((k+1, k))
+        T[0, 0] = group_product(qs[0], Hqs[0]).cpu().item()
+        r = multi_add([Hqs[0], qs[0]], [1, -1*T[0, 0]]) # r = Hq0 - T00*q0
+        T[1, 0] = norm(r) # T10 = |r|
+        T[0, 1] = T[1, 0] # T symmetric
+        q1 = [ri / T[1, 0] for ri in r] #q2 = r/|r|
+        # Calculate Hq2
+        self.model.zero_grad()
+        if self.full_dataset:
+            _, Hq1 = self.dataloader_hv_product(q1)
+        else:
+            Hq1 = hessian_vector_product(self.gradsH, self.params, q1)
+        qs.append(q1)
+        Hqs.append(Hq1)
+        # Subsequent columns (columns 1 - k-1)
+        for i in range(1, k):
+            print(i)
+            T[i, i] = group_product(qs[i], Hqs[i]).cpu().item()
+            r = multi_add([Hqs[i], qs[i-1], qs[i]], [1, -1*T[i-1, i], -1*T[i, i]])
+            T[i+1, i] = norm(r)
+            if i != k-1:
+                T[i, i+1] = T[i+1, i]
+            q = [ri / T[i+1, i] for ri in r]
+            self.model.zero_grad()
+            if self.full_dataset:
+                _, Hq = self.dataloader_hv_product(q)
+            else:
+                Hq = hessian_vector_product(self.gradsH, self.params, q)
+            qs.append(q)
+            Hqs.append(Hq)
+        # print(T)
+        T_UH = T[0:k, 0:k] #T_UH is square Upper Hessenberg
+        np.save("T_100", T)
+        # print(T_UH)
+        # print(np.linalg.eigvalsh(T_UH))
+        for i in range(k+1):
+            for j in range(k):
+                print("({}, {}): ({}, {})".format(i, j, T[i, j], group_product(qs[i], Hqs[j]).cpu().item()))
+        return np.linalg.eigvalsh(T_UH)
+
+    def trace_forced_lengthy(self, maxIter=150, num_reps=1, debug=False):
+        """
+        As a test, do not terminate trace calculation after 'convergence'
+        Go a fixed number of iterations
+        """
+
+        device = self.device
+        trace_vhv = []
+        trace = 0.
+
+        # Prepare to record data
+        if self.record_data:
+            now = datetime.datetime.now()
+            timestamp = "_{:02d}{:02d}_{:02d}{:02d}{:02d}".format(now.day, now.month, now.hour, now.minute, now.second)
+            save_file = self.data_save_dir + "Trace" + timestamp + ".txt"
+            total_time_to_compute = []
+            trace_estimate = []
+
+        start_time = time.time()
+        for i in range(maxIter):
+            if debug:
+                    print("Iteration {}".format(i))
+            self.model.zero_grad()
+            v = [
+                torch.randint_like(p, high=2, device=device)
+                for p in self.params
+            ]
+            # generate Rademacher random variables
+            for v_i in v:
+                v_i[v_i == 0] = -1
+
+            if self.full_dataset:
+                _, Hv = self.dataloader_hv_product(v)
+            else:
+                Hv = hessian_vector_product(self.gradsH, self.params, v)
+            trace_vhv.append(group_product(Hv, v).cpu().item())
+
+            total_time_to_compute.append(time.time() - start_time)
+            trace_estimate.append(np.mean(trace_vhv))
+
+            if abs(np.mean(trace_vhv) - trace) / (trace + 1e-6) < tol:
+                # Write data if applicable
+                if self.record_data:
+                    with open(save_file, 'w') as f:
+                        f.write("Iteration\tTotal Elapsed Time(s)\tTrace Estimate\n")
+                        for i in range(len(total_time_to_compute)):
+                            f.write("{}\t{}\t{}\n".format(i+1, total_time_to_compute[i], trace_estimate[i]))
+                return trace_vhv
+            else:
+                trace = np.mean(trace_vhv)
+        # Trace could not converge
+        # Write data if applicable
+        if self.record_data:
+            with open(save_file, 'w') as f:
+                f.write("Iteration\tTotal Elapsed Time(s)\tTrace Estimate\n")
+                for i in range(len(total_time_to_compute)):
+                    f.write("{}\t{}\t{}\n".format(i+1, total_time_to_compute[i], trace_estimate[i]))
+        return trace_vhv
+
+    def test_function(self):
+        """
+        test function
+        """
+        print("testing")
+        device = self.device
+
+        self.model.zero_grad()
+
+        for p in self.params:
+            print(p.size())
+
+        # Generate Rademacher random variable
+        v = [torch.randint_like(p, high=2, device=device) for p in self.params]
+        for v_i in v:
+            v_i[v_i == 0] = -1
+        # Multiply with Hessian
+        if self.full_dataset:
+            _, Hv = self.dataloader_hv_product(v)
+        else:
+            Hv = hessian_vector_product(self.gradsH, self.params, v)
+        #print(type(v))
+        print(type(Hv))
+        print(len(Hv))
+        for hi in Hv:
+            print(type(hi))
+        #for vi in v:
+
+
+        '''
+        start_time = time.time()
+        while computed_dim < top_n:
+            if debug:
+                print("Computing eigenvalue #{}".format(computed_dim+1))
+            eigenvalue = None
+            v = [torch.randn(p.size()).to(device) for p in self.params
+                ]  # generate random vector
+            v = normalization(v)  # normalize the vector
+
+            for i in range(maxIter):
+                if debug:
+                    print("   Iteration {}".format(i))
+                v = orthnormal(v, eigenvectors)
+                self.model.zero_grad()
+
+                if self.full_dataset:
+                    tmp_eigenvalue, Hv = self.dataloader_hv_product(v)
+                else:
+                    Hv = hessian_vector_product(self.gradsH, self.params, v)
+                    tmp_eigenvalue = group_product(Hv, v).cpu().item()
+
+                v = normalization(Hv)
+
+                if eigenvalue == None:
+                    eigenvalue = tmp_eigenvalue
+                else:
+                    if abs(eigenvalue - tmp_eigenvalue) / (abs(eigenvalue) +
+                                                           1e-6) < tol:
+                        break
+                    else:
+                        eigenvalue = tmp_eigenvalue
+            # Record data
+            total_time_to_compute.append(time.time() - start_time);
+            iters_to_compute.append(i)
+            eigenvalues.append(eigenvalue)
+            eigenvectors.append(v)
+            computed_dim += 1
+        # Write data if applicable
+        if self.record_data:
+            with open(save_file, 'w') as f:
+                f.write("Eigenvalue\tTotal Elapsed Time(s)\t#Iterations\n")
+                for i in range(top_n):
+                    f.write("{}\t{}\t{}\n".format(i+1, total_time_to_compute[i], iters_to_compute[i]))
+        return eigenvalues, eigenvectors
+        '''

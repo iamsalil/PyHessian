@@ -34,7 +34,8 @@ from torchvision import datasets, transforms
 from torch.autograd import Variable
 
 from utils import *
-from density_plot import get_esd_plot
+from density_plot import get_esd_plot, density_generate
+from spectral_cdf import *
 from models.resnet import resnet
 from pyhessian import hessian
 
@@ -127,21 +128,43 @@ if batch_num == 1:
     hessian_comp = hessian(model,
                            criterion,
                            data=hessian_dataloader,
-                           cuda=args.cuda)
+                           cuda=args.cuda,
+                           record_data=True)
 else:
     hessian_comp = hessian(model,
                            criterion,
                            dataloader=hessian_dataloader,
-                           cuda=args.cuda)
+                           cuda=args.cuda,
+                           record_data=True)
 
 print(
     '********** finish data loading and begin Hessian computation **********')
 
-top_eigenvalues, _ = hessian_comp.eigenvalues()
-trace = hessian_comp.trace()
-density_eigen, density_weight = hessian_comp.density()
+# Custom functions
+#hessian_comp.test_function()
+# h = hessian_comp.sketch(50)
+# print(h)
+# print(np.trace(h))
+# np.save("temp_50sketch", h)
 
-print('\n***Top Eigenvalues: ', top_eigenvalues)
-print('\n***Trace: ', np.mean(trace))
+# h = np.load("temp_50sketch.npy")
+# print(h)
+# print(np.linalg.eigvalsh(h))
+# scdf(h)
+# scdf(h, plotname="Sketch_Normal")
+# scdf(h, plotname="Sketch_Log", logx=True)
 
-get_esd_plot(density_eigen, density_weight)
+# density_eigen, density_weight = hessian_comp.density(debug=True)
+# print("----------")
+# print(density_eigen)
+# print(density_weight)
+# eigen_density, eigen_values = density_generate(density_eigen, density_weight)
+# print("----------")
+# print(eigen_density)
+# print(sum(eigen_density))
+# print(eigen_values)
+# density_to_scdf(eigen_density, eigen_values, plotname="Density_Normal")
+# density_to_scdf(eigen_density, eigen_values, plotname="Density_Log", logx=True)
+
+es = hessian_comp.eigenvalues_lanczos(100)
+print(es)
