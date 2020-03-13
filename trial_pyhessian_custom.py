@@ -142,17 +142,33 @@ print(
 
 # Custom functions
 #hessian_comp.test_function()
-# h = hessian_comp.sketch(50)
+# h = hessian_comp.sketch(100)
 # print(h)
 # print(np.trace(h))
-# np.save("temp_50sketch", h)
+# np.save("temp_100sketch", h)
 
-# h = np.load("temp_50sketch.npy")
+# h = hessian_comp.sketch(50)
+# print(np.trace(h))
+# np.save("normalized_50sketch", h)
+# scdf(h, plotname="SketchNormalized_Normal")
+# scdf(h, plotname="SketchNormalized_Log", logx=True)
+
+h = np.load("temp_100sketch.npy")
 # print(h)
-# print(np.linalg.eigvalsh(h))
+print("ok")
+print(np.linalg.eigvalsh(h))
+eigs = np.linalg.eigvalsh(h)
+eigs.flip()
+frompower = [167.76622009277344, 106.86729431152344, 89.84439086914062, 51.09503936767578, 44.81565856933594, 43.12944412231445, 38.06986618041992, 30.898088455200195, 25.267065048217773, 24.326675415039062, 19.926258087158203, 16.243072509765625, 15.194313049316406, 15.515100479125977, 14.034353256225586, 12.776123046875, 10.012635231018066, 9.320322036743164, 9.862530708312988, 8.594795227050781]
+for i in range(20):
+  print("({}, {})".format(frompower[i], (eigs[i] - frompower[i])/frompower[i])) 
+
 # scdf(h)
 # scdf(h, plotname="Sketch_Normal")
 # scdf(h, plotname="Sketch_Log", logx=True)
+
+# density_eigen, density_weight = hessian_comp.density(n_v=3, debug=True)
+# get_esd_plot(density_eigen, density_weight)
 
 # density_eigen, density_weight = hessian_comp.density(debug=True)
 # print("----------")
@@ -166,5 +182,5 @@ print(
 # density_to_scdf(eigen_density, eigen_values, plotname="Density_Normal")
 # density_to_scdf(eigen_density, eigen_values, plotname="Density_Log", logx=True)
 
-es = hessian_comp.eigenvalues_lanczos(100)
-print(es)
+# es = hessian_comp.eigenvalues_lanczos(100)
+# print(es)

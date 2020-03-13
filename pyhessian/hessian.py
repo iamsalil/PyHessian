@@ -357,6 +357,7 @@ class hessian():
         # Generate d Rademacher vectors v and calculate corresponding Hv
         print("starting")
         print("d = " + str(d))
+        print(time.time())
         vs = []
         Hvs = []
         for i in range(d):
@@ -365,6 +366,10 @@ class hessian():
             v = [torch.randint_like(p, high=2, device=device) for p in self.params]
             for v_i in v:
                 v_i[v_i == 0] = -1
+            # print(norm(v))
+            v = normalization(v)
+            # print(norm(v))
+            # print(group_product(v, v).cpu().item())
             vs.append(v)
             # Calculate Hv
             self.model.zero_grad()
@@ -374,12 +379,14 @@ class hessian():
                 Hv = hessian_vector_product(self.gradsH, self.params, v)
             Hvs.append(Hv)
         # Create sketched matrix template
+        print(time.time())
         sketched_hessian = np.zeros((d, d))
         # Fill in matrix as A_ij = v_i' * Hv_j
         for i in range(d):
             for j in range(d):
-                print("({}, {})".format(i, j))
+                # print("({}, {})".format(i, j))
                 sketched_hessian[i, j] = group_product(vs[i], Hvs[j]).cpu().item()/d
+        print(time.time())
         return sketched_hessian
 
     def eigenvalues_lanczos(self, k, debug=False):
@@ -389,10 +396,19 @@ class hessian():
 
         device = self.device
 
+        # Prepare to record data
+        if self.record_data:
+            now = datetime.datetime.now()
+            timestamp = "_{:02d}{:02d}_{:02d}{:02d}{:02d}".format(now.day, now.month, now.hour, now.minute, now.second)
+            save_file = self.data_save_dir + "Lanczos" + timestamp + ".txt"
+            total_time_to_compute = []
+
+        start_time = time.time()
         # Pick a random first vector, making sure it has norm 1
         print("starting with q1")
         q0 = [torch.randn(p.size()).to(device) for p in self.params]
         q0 = normalization(q0)
+        total_time_to_compute.append(time.time() - start_time)
         # Calculate Hq1
         self.model.zero_grad()
         if self.full_dataset:
@@ -408,6 +424,7 @@ class hessian():
         T[1, 0] = norm(r) # T10 = |r|
         T[0, 1] = T[1, 0] # T symmetric
         q1 = [ri / T[1, 0] for ri in r] #q2 = r/|r|
+        total_time_to_compute.append(time.time() - start_time)
         # Calculate Hq2
         self.model.zero_grad()
         if self.full_dataset:
@@ -425,6 +442,7 @@ class hessian():
             if i != k-1:
                 T[i, i+1] = T[i+1, i]
             q = [ri / T[i+1, i] for ri in r]
+            total_time_to_compute.append(time.time() - start_time)
             self.model.zero_grad()
             if self.full_dataset:
                 _, Hq = self.dataloader_hv_product(q)
@@ -434,12 +452,21 @@ class hessian():
             Hqs.append(Hq)
         # print(T)
         T_UH = T[0:k, 0:k] #T_UH is square Upper Hessenberg
-        np.save("T_100", T)
+        # np.save("T_100", T)
         # print(T_UH)
         # print(np.linalg.eigvalsh(T_UH))
-        for i in range(k+1):
-            for j in range(k):
-                print("({}, {}): ({}, {})".format(i, j, T[i, j], group_product(qs[i], Hqs[j]).cpu().item()))
+
+        # Write data if applicable
+        if self.record_data:
+            with open(save_file, 'w') as f:
+                f.write("Total Elapsed Time(s)\tEigenvalues\n")
+                for i in range(k):
+                    eigs_i = np.linalg.eigvalsh(T[0:i, 0:i])
+                    s = ""
+                    for e in eigs_i:
+                        s += "\t" + str(e)
+                    s = str(total_time_to_compute[i]) + s + "\n"
+                    f.write(s)
         return np.linalg.eigvalsh(T_UH)
 
     def trace_forced_lengthy(self, maxIter=150, num_reps=1, debug=False):
