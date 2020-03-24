@@ -1,56 +1,24 @@
-# PyHessian
-
-
 ## Introduction
-PyHessian is a pytorch library for Hessian based analysis of neural network models. The library supports computation of (i) top Hessian eigenvalues, (ii) the trace of the Hessian matrix, and (iii) the full Hessian Eigenvalues Spectral Density (ESD). For details please see [this paper](https://arxiv.org/pdf/1912.07145.pdf).
+[PyHessian](https://github.com/amirgholami/PyHessian) is a pytorch library created by Yao, Gholami, Keutzer, and Mahoney of UCBerkeley and released alongside the paper, [PyHessian: Neural Networks Through the Lens of the Hessian](https://arxiv.org/pdf/1912.07145.pdf).
 
-![Block](misc/resnet38.png)
+This repository is a fork of PyHessian and was created for the purposes of Stanford's Winter 2020 EE270 Course, taught by Prof. Mert Pilanci. While the course has completed, this repository is still a work in progress. Please feel free to read my [project report](https://github.com/iamsalil/PyHessian/blob/master/Project%20Final%20Report.pdf), which was the initial inspiration for this work.
 
+## Change List
+Here are a list of files that I made to PyHessian as a part of this project:
+- pyhessian/hessian.py
+- pyhessian/utils.py
+- spectral_cdf.py (new)
+- LanczosVisualizer.py (new)
+- timer_pyhessian_standard.py (new)
+- example_pyhessian_analysis.py (new)
 
-## Usage
-Please first clone the PyHessian library to your local system:
-```
-git clone https://github.com/amirgholami/PyHessian.git
-```
+## Findings
+Here is a summary of my findings so far:
+- The Lanczos Method is superior to PyHessian's Power Iteration for calculating top eigenvalues when calculating matvecs is costly
+- Low dimensional sketches of the Hessian can give optimally accurate trace estimates and cheap, rough estimates of top eigenvalues (read the **Hessian Sketching** section of my report for the details of how this sketch is designed and what its properties are)
 
-Before running the Hessian code, we need a (pre-trained) NN model. Here, we provide a training file to train ResNet20 model on Cifar-10 dataset:
-```
-export CUDA_VISIBLE_DEVICES=0; python training.py [--batch-size] [--test-batch-size] [--epochs] [--lr] [--lr-decay] [--lr-decay-epoch] [--seed] [--weight-decay] [--batch-norm] [--residual] [--cuda] [--saving-folder]
-
-optional arguments:
---batch-size                training batch size (default: 128)
---test-batch-size           testing batch size (default:256)
---epochs                    total number of training epochs (default: 180)
---lr                        initial learning rate (default: 0.1)
---lr-decay                  learning rate decay ratio (default: 0.1)
---lr-decay-epoch            epoch for the learning rate decaying (default: 80, 120)
---seed                      used to reproduce the results (default: 1)
---weight-decay              weight decay value (default: 5e-4)
---batch-norm                do we need batch norm in ResNet or not (default: True)
---residual                  do we need residual connection or not (default: True)
---cuda                      do we use gpu or not (default: True)
---saving-folder             saving path of the final checkpoint (default: checkpoints/)
-```
-
-After the model checkpoint is saved, we can run the following code to get the top eigenvalue, trace, and the Eigenvalue Spectral Density of Hessian:
-```
-export CUDA_VISIBLE_DEVICES=0; python example_pyhessian_analysis.py [--mini-hessian-batch-size] [--hessian-batch-size] [--seed] [--batch-norm] [--residual] [--cuda] [--resume]
-
-optional arguments:
---mini-hessian-batch-size   mini hessian batch size (default: 200)
---hessian-batch-size        hessian batch size (default:200)
---seed                      used to reproduce the results (default: 1)
---batch-norm                do we need batch norm in ResNet or not (default: True)
---residual                  do we need residual connection or not (default: True)
---cuda                      do we use gpu or not (default: True)
---resume                    resume path of the checkpoint (default: none, must be filled by user)
-```
-
-The output density plot is saved as example.pdf 
-
-## Citation
-PyHessian has been developed as part of the following paper. We appreciate it if you would please cite the following paper if you found the library useful for your work:
-
-* Z. Yao, A. Gholami, K Keutzer, M. Mahoney. PyHessian:  Neural Networks Through the Lens of the Hessian, under review [PDF](https://arxiv.org/pdf/1912.07145.pdf).
-
-
+## Goals
+1) Clean up my code, add comments, and make readable
+2) Add functionality to create a partial CSD and use to compare top 100 eigenvalue distribution from sketched Hessian and original Hessian
+3) Look at sketches of size 20/25/30/35
+4) Explore matrix-free inverse iteration
